@@ -5969,7 +5969,7 @@ grabTab:CreateToggle({
 local GF = {"1ove0_9"}
 
 --[[
-local Owner = {"sos107ppq"}
+local Owner = {"sos107ppq","sos107ppq_1"}
 
 local Overseer = {""}
 local CoOwner = {"Robloxian519926689"}
@@ -5979,7 +5979,7 @@ local Admin = {""}
 local Mod = {""}
 ]]--
 
-local Owner = {"sos107ppq"}
+local Owner = {"sos107ppq","sos107ppq_1"}
 local CoOwner = {""}
 local HeadAdmin = {""}
 local Admin = {""}
