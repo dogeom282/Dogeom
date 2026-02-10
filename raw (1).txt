@@ -2,7 +2,7 @@
 
 
 -- 사용 우회
-local FN_BYPASS = false
+local FN_BYPASS = true
 
 ----------------------------------------------------------------------------------------- [ 변수 ]
 Players = game:GetService("Players")
