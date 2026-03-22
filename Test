@@ -1,0 +1,205 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local root = character:WaitForChild("HumanoidRootPart")
+
+-- [ 설정값: 시야 확보를 위해 높이와 반지름 조정 ]
+local MAX_MISSILES = 20
+local baseRadius = 12    -- 반지름 (너무 멀지 않게)
+local baseHeight = 15    -- 높이 (너무 높지 않게)
+local layerHeightGap = 5 
+local layerRadiusGap = 4 
+local rotationSpeed = 4  
+
+local missiles = {}
+local targetList = {}  -- 여러 명 저장할 리스트
+
+-- 리모트 경로
+local menuToys = ReplicatedStorage:WaitForChild("MenuToys", 5)
+local spawnRemote = menuToys and menuToys:WaitForChild("SpawnToyRemoteFunction", 5)
+local grabEvents = ReplicatedStorage:WaitForChild("GrabEvents", 5)
+local setOwnerRemote = grabEvents and grabEvents:WaitForChild("SetNetworkOwner", 5)
+
+-- [ UI 생성 ]
+local Window = Rayfield:CreateWindow({
+    Name = "🚀 테러!",
+    LoadingTitle = "로딩중...",
+    ConfigurationSaving = { Enabled = false }
+})
+
+local MainTab = Window:CreateTab("테러!", 4483362458)
+
+-- 상태 표시 (여러 타겟 표시)
+local StatusLabel = MainTab:CreateLabel("타겟: 없음")
+
+-- 다중 선택 드롭다운
+local TargetDropdown = MainTab:CreateDropdown({
+    Name = "타겟 선택 (여러 명 가능)",
+    Options = {},
+    CurrentOption = {"선택"},
+    MultipleOptions = true,  -- 여러 명 선택 가능
+    Callback = function(Options)
+        targetList = Options
+        if #targetList > 0 then
+            StatusLabel:Set("타겟: " .. table.concat(targetList, ", "))
+        else
+            StatusLabel:Set("타겟: 없음")
+        end
+    end,
+})
+
+-- 리스트 업데이트 함수
+local function updateList()
+    local names = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= player then 
+            table.insert(names, p.Name) 
+        end
+    end
+    TargetDropdown:Refresh(names, false)  -- false: 선택 초기화 안함
+end
+
+-- 새로고침 버튼
+MainTab:CreateButton({
+    Name = "🔄 플레이어 목록 새로고침",
+    Callback = function()
+        updateList()
+        Rayfield:Notify({Title = "✅ 새로고침 완료", Duration = 1})
+    end
+})
+
+-- 타겟 카운트 표시
+local targetCountLabel = MainTab:CreateLabel("선택된 타겟: 0명")
+
+-- 상태 업데이트
+spawn(function()
+    while true do
+        targetCountLabel:Set("선택된 타겟: " .. #targetList .. "명")
+        task.wait(0.2)
+    end
+end)
+
+task.spawn(updateList)
+
+-- [ 기능: 소환 및 강제 낚아채기 ]
+function spawnMissile()
+    if #missiles >= MAX_MISSILES then return end
+    
+    -- 내 위치 바로 근처에서 소환 (안 보일 수 없게)
+    local spawnCF = root.CFrame * CFrame.new(0, 10, 0)
+    
+    pcall(function()
+        spawnRemote:InvokeServer("BombMissile", spawnCF, Vector3.new(0, -1.86, 0))
+    end)
+    
+    -- 소환된 폭탄을 더 빨리 찾기 위해 반복 루프 사용
+    task.spawn(function()
+        local found = false
+        for i = 1, 20 do -- 0.5초 동안 폴더를 계속 뒤짐
+            local folder = workspace:FindFirstChild(player.Name .. "SpawnedInToys") or workspace:FindFirstChild("hoyalim2012SpawnedInToys")
+            if folder then
+                for _, m in pairs(folder:GetChildren()) do
+                    if m.Name == "BombMissile" and not table.find(missiles, m) then
+                        local hb = m:FindFirstChild("HitboxBodyTop")
+                        if hb then
+                            hb.CanCollide = false
+                            hb.Transparency = 0 -- 투명 방지
+                            table.insert(missiles, m)
+                            setOwnerRemote:FireServer(hb, hb.CFrame)
+                            found = true
+                            break
+                        end
+                    end
+                end
+            end
+            if found then break end
+            task.wait(0.02)
+        end
+    end)
+end
+
+-- [ 기능: 즉시 폭발 (G) - 여러 타겟에게 동시 발사 ]
+function fireAll()
+    if #targetList == 0 then
+        Rayfield:Notify({Title = "Error", Content = "타겟을 먼저 설정하세요!"})
+        return 
+    end
+
+    local snapshot = {unpack(missiles)}
+    missiles = {} 
+
+    -- 모든 선택된 타겟에게 미사일 발사
+    for _, targetName in ipairs(targetList) do
+        local targetPlayer = Players:FindFirstChild(targetName)
+        if targetPlayer and targetPlayer.Character then
+            local tRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if tRoot then
+                for _, m in pairs(snapshot) do
+                    local hb = m:FindFirstChild("HitboxBodyTop")
+                    if hb then
+                        hb.CanCollide = true
+                        hb.CFrame = tRoot.CFrame * CFrame.new(math.random(-1,1), math.random(-1,1), math.random(-1,1))
+                        hb.Velocity = (tRoot.Position - hb.Position).Unit * 500
+                    end
+                end
+            end
+        end
+    end
+    
+    Rayfield:Notify({
+        Title = "💥 발사 완료",
+        Content = #snapshot .. "개의 미사일이 " .. #targetList .. "명의 타겟에게 발사됨",
+        Duration = 3
+    })
+end
+
+-- [ 핵심: 정렬 로직 - 위치 강제 고정력 강화 ]
+RunService.Heartbeat:Connect(function()
+    if #missiles == 0 then return end
+    
+    local currentTime = tick() * rotationSpeed
+    
+    -- 프레임당 20번 연산 대신 Heartbeat에서 안정적으로 고정
+    for i, m in ipairs(missiles) do
+        local hb = m:FindFirstChild("HitboxBodyTop")
+        if m and m.Parent and hb then
+            local layer = math.floor((i - 1) / 5)
+            local indexInLayer = (i - 1) % 5
+            
+            local currentRadius = baseRadius + (layer * layerRadiusGap)
+            local currentHeight = baseHeight + (layer * layerHeightGap)
+            
+            local totalInThisLayer = math.min(5, #missiles - (layer * 5))
+            if totalInThisLayer < 1 then totalInThisLayer = 1 end
+            
+            local angle = (indexInLayer / totalInThisLayer) * (math.pi * 2) + currentTime
+            
+            -- 내 캐릭터 위치 실시간 참조
+            local targetPos = root.Position + Vector3.new(
+                math.cos(angle) * currentRadius,
+                currentHeight,
+                math.sin(angle) * currentRadius
+            )
+            
+            -- 물리 엔진이 개입하지 못하게 CFrame 직접 주입
+            hb.CanCollide = false
+            hb.Velocity = Vector3.new(0, 0, 0)
+            hb.CFrame = CFrame.new(targetPos, root.Position + Vector3.new(0, currentHeight, 0))
+        else
+            table.remove(missiles, i)
+        end
+    end
+end)
+
+-- 입력 감지
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.F then spawnMissile()
+    elseif input.KeyCode == Enum.KeyCode.G then fireAll() end
+end)
